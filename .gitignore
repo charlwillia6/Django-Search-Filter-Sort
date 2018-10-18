@@ -44,7 +44,7 @@ coverage.xml
 *,cover
 
 # Translations
-*.mo
+# *.mo
 *.pot
 
 # Django stuff:
@@ -56,8 +56,14 @@ docs/_build/
 # PyBuilder
 target/
 
-# PyCharm
+# Pycharm project files
 .idea
+
+*.sqlite3
+
+website/local_settings.py
+website/media/*
+!website/media/.gitkeep
 
 # Vagrant configuration
 .vagrant

@@ -1,7 +1,11 @@
 import operator
 import logging
+import json
+import re
 from functools import reduce
 
+from django.http import Http404, HttpResponse
+from django.utils.translation import ugettext
 from django.db.models import Q
 from django.http.response import HttpResponseRedirect
 from django.views.generic import ListView
@@ -29,6 +33,8 @@ class BaseBrowseView(ListView):
     sorts = []
     default_sort_by = ["-id"]
     default_pagination = 25
+    show_all_in_filter = True
+    show_clear_sorts = True
 
     search_by = None
     using_filters = None
@@ -52,6 +58,20 @@ class BaseBrowseView(ListView):
                 raise
 
             return HttpResponseRedirect(request.path)
+        # Error checking - returns JSON, but if this exception is not raised then HTML is usually the response content type
+        except (Http404):
+            url_args = request.GET.copy()
+            invalid_page = url_args["page"]
+            url_args["page"] = 1
+
+            return HttpResponse(json.dumps({
+                "message": ugettext("<strong>Invalid Page:</strong> Page {invalid_page} does not exist.<br><em>You will be redirected back to page {page}.</em>")
+                    .format(invalid_page=invalid_page, page=url_args["page"]),
+                "status": "failed",
+                "alert_status": "alert-info",
+                "page": url_args["page"],
+                "request_path": "{request_path}?{url_args}".format(request_path=request.path, url_args=url_args.urlencode())
+            }), content_type="application/json")
 
     def get_context_data(self, **kwargs):
         context = super(BaseBrowseView, self).get_context_data(**kwargs)
@@ -65,6 +85,8 @@ class BaseBrowseView(ListView):
         context["default_pagination"] = self.default_pagination
         context["filtered_object_count"] = self.filtered_object_count
         context["total_object_count"] = self.model.objects.count()
+        context["show_all_in_filter"] = self.show_all_in_filter
+        context["show_clear_sorts"] = self.show_clear_sorts
 
         return context
 
@@ -90,6 +112,9 @@ class BaseBrowseView(ListView):
         filter_names = self.request.GET.getlist("filter_name", None)
         filter_values = self.request.GET.getlist("filter_value", None)
         sort_bys = self.request.GET.getlist("sort_by", self.default_sort_by)
+
+        if not sort_bys:
+            raise ValueError("The default sort by is not in the view's sorts list")
 
         search_list = self.get_search_list(search_bys)
         filter_list = self.get_filter_list(filter_names, filter_values)
@@ -123,6 +148,12 @@ class BaseBrowseView(ListView):
             queryset = self.model.objects.filter(filter_reduce).distinct().order_by(*sort_list)
         else:
             queryset = self.model.objects.order_by(*sort_list)
+            # queryset = sorted(self.model.objects.all(), key=lambda x: [int(t) if t.isdigit() else t.lower() for t in re.split('(\d+)', x.name)])
+
+        # TODO: Find a way to natural sort the queryset
+        # SELECT * FROM job
+        # ORDER BY(substring('name', '^[0-9]+'))::int -- cast to integer\
+        #     , coalesce(substring('name', '[^0-9_].*$'), '')
 
         self.filtered_object_count = queryset.count()
 
@@ -134,16 +165,10 @@ class BaseBrowseView(ListView):
 
         if search_bys:
             self.search_by = search_bys
-            search_terms = []
-
-            for term in search_bys.split():
-                search_terms.append(term)
 
             for field in self.searches:
                 field += "__icontains"
-
-                for term in search_terms:
-                    search_list[field] = term
+                search_list[field] = search_bys
         else:
             self.search_by = ""
 
@@ -168,6 +193,9 @@ class BaseBrowseView(ListView):
                 elif "__lte_number" in filter_name or "__lt_number" in filter_name:
                     filter_name = filter_name.replace("__lte_number", "__lte")
                     filter_name = filter_name.replace("__lt_number", "__lt")
+                elif "__lte_date" in filter_name or "__lt_date" in filter_name:
+                    filter_name = filter_name.replace("__lte_date", "__lte")
+                    filter_name = filter_name.replace("__lt_date", "__lt")
 
                 if "__gte_age" in filter_name or "__gt_age" in filter_name:
                     values = [convert_age_to_date(int(filter_values[i]) + 1)]
@@ -176,6 +204,9 @@ class BaseBrowseView(ListView):
                 elif "__gte_number" in filter_name or "__gt_number" in filter_name:
                     filter_name = filter_name.replace("__gte_number", "__gte")
                     filter_name = filter_name.replace("__gt_number", "__gt")
+                elif "__gte_date" in filter_name or "__gt_date" in filter_name:
+                    filter_name = filter_name.replace("__gte_date", "__gte")
+                    filter_name = filter_name.replace("__gt_date", "__gt")
 
                 new_values = []
                 for value in values:
@@ -232,7 +263,7 @@ class BaseBrowseView(ListView):
         self.filter_names = []
 
     def add_select_filter(self, html_name, filter_name, html_options_code):
-        html_code = '<select class="multi-select form-control" id="' + filter_name + '_filter" name="' + filter_name + '_filter" autocomplete="off" multiple>'
+        html_code = '<select class="multi-select form-control sfs-filter" id="' + filter_name + '_filter" name="' + filter_name + '_filter" autocomplete="off" multiple>'
         html_code += html_options_code + '</select>'
 
         self.filters.append(
@@ -244,13 +275,19 @@ class BaseBrowseView(ListView):
 
         self.filter_names.append(filter_name)
 
-    def add_number_range_filter(self, html_name, lower_filter_name, upper_filter_name, max_width="50px", step_size="1"):
+    def add_range_filter(self, html_name, filter_name, input_type, step_size="1"):
+        lower_filter_name = filter_name + "__gte_" + input_type
+        upper_filter_name = filter_name + "__lte_" + input_type
+
+        if input_type == "age":
+            input_type = "number"
+
         html_code = \
-            '<input type="number" class="range-filter form-control" id="' + lower_filter_name + '_filter" ' + \
-                'name="' + lower_filter_name + '" step="' + step_size + '" style="max-width: ' + max_width + '" />' + \
+            '<input type="' + input_type + '" class="range-filter form-control" id="' + lower_filter_name + '_filter" ' + \
+            'name="' + lower_filter_name + '" step="' + step_size + '" style="max-width:max-content" />' + \
             '<strong> - </strong>' + \
-            '<input type="number" class="range-filter form-control" id="' + upper_filter_name + '_filter" ' + \
-                'name="' + upper_filter_name + '" step="' + step_size + '" style="max-width: ' + max_width + '" />'
+            '<input type="' + input_type + '" class="range-filter form-control" id="' + upper_filter_name + '_filter" ' + \
+            'name="' + upper_filter_name + '" step="' + step_size + '" style="max-width: max-content" />'
 
         self.filters.append(
         {

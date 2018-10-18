@@ -1,4 +1,3 @@
-[![Downloads](https://img.shields.io/pypi/dw/django-search-filter-sort.svg)](https://pypi.python.org/pypi/django-search-filter-sort)
 [![Version](https://img.shields.io/pypi/v/django-search-filter-sort.svg)](https://pypi.python.org/pypi/django-search-filter-sort)
 [![License](https://img.shields.io/pypi/l/django-search-filter-sort.svg)](https://pypi.python.org/pypi/django-search-filter-sort)
 [![Python](https://img.shields.io/pypi/pyversions/django-search-filter-sort.svg)](https://pypi.python.org/pypi/django-search-filter-sort)
@@ -10,9 +9,9 @@ If you want to report any bugs, you can use the github issue tracker. If you hav
 
 - Python 2.7 and 3+
 - Django >=? (I am using 1.10.3 and 1.11)
-- django-bootstrap4 >= 0.0.3 (Bootstrap 4 is still currently in Beta)
 - jQuery >= ? (I am using 1.12.0)
-- Font Awesome Icons installed or linked to your project (Bootstrap 4 no longer has glyphicons)
+- FontAwesome 5 Icons installed or linked to your project (Bootstrap 4 no longer has glyphicons)
+- Bootstrap 4 installed or linked to your project
 
 # Installation
 
